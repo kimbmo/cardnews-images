@@ -4,7 +4,10 @@
 // The token travels as an Authorization: Bearer header. In the cloud environment it is a network
 // secret the agent proxy attaches for graph.instagram.com, so IG_ACCESS_TOKEN stays unset there;
 // set it only when running somewhere without that proxy.
+// Requests go through curl because Node's built-in fetch ignores HTTPS_PROXY, so the proxy
+// never sees them and the token is never attached.
 const fs = require('fs');
+const { execFileSync } = require('child_process');
 
 const API = 'https://graph.instagram.com/v26.0';
 const args = process.argv.slice(2);
@@ -20,26 +23,30 @@ if (!dryRun && !IG_USER_ID) {
   console.error('IG_USER_ID must be set');
   process.exit(1);
 }
-const auth = IG_ACCESS_TOKEN ? { Authorization: `Bearer ${IG_ACCESS_TOKEN}` } : {};
 const caption = fs.readFileSync(captionPath, 'utf8').trim();
+
+function call(method, path, params) {
+  const args = ['-sS', ...(method === 'GET' ? ['-G'] : []), `${API}/${path}`];
+  if (IG_ACCESS_TOKEN) args.push('-H', `Authorization: Bearer ${IG_ACCESS_TOKEN}`);
+  for (const [k, v] of Object.entries(params)) args.push('--data-urlencode', `${k}=${v}`);
+  const json = JSON.parse(execFileSync('curl', args, { encoding: 'utf8' }));
+  if (json.error) throw new Error(`${path}: ${JSON.stringify(json.error)}`);
+  return json;
+}
 
 async function post(path, params) {
   if (dryRun) {
     console.log('POST', path, params);
     return { id: 'dry-' + Math.random().toString(36).slice(2, 8) };
   }
-  const res = await fetch(`${API}/${path}`, { method: 'POST', headers: auth, body: new URLSearchParams(params) });
-  const json = await res.json();
-  if (!res.ok || json.error) throw new Error(`${path}: ${JSON.stringify(json.error || json)}`);
-  return json;
+  return call('POST', path, params);
 }
 
 // Meta suggests polling about once a minute for up to five minutes.
 async function waitFinished(containerId) {
   if (dryRun) return;
   for (let i = 0; i < 5; i++) {
-    const res = await fetch(`${API}/${containerId}?fields=status_code`, { headers: auth });
-    const { status_code } = await res.json();
+    const { status_code } = call('GET', containerId, { fields: 'status_code' });
     if (status_code === 'FINISHED') return;
     if (status_code === 'ERROR' || status_code === 'EXPIRED') throw new Error(`container ${containerId}: ${status_code}`);
     await new Promise((r) => setTimeout(r, 60_000));
@@ -48,6 +55,8 @@ async function waitFinished(containerId) {
 }
 
 (async () => {
+  // Fail before creating anything if the token is not getting through.
+  if (!dryRun) console.log('account:', call('GET', 'me', { fields: 'username' }).username);
   const children = [];
   for (const image_url of urls) {
     const { id } = await post(`${IG_USER_ID}/media`, { image_url, is_carousel_item: 'true' });

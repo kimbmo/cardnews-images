@@ -6,8 +6,9 @@ Card images for the Instagram channel @why.trend.kr (왜떴지), served by GitHu
   - `cards.json`: the card text (input to the renderer), with any photos under `img/`
   - `card-N.jpg`: the rendered 1080×1350 cards
   - `caption.txt`: the Instagram caption
-  - `reel.mp4`: the same cards as a 9:16 Reels video (3 s per card)
-- `tools/render.js`: renders a `cards.json` to JPEGs (`node tools/render.js <cards.json> <outDir>`)
+  - `reel-cover.jpg`: the cover redrawn at 1080×1920 for the Reel thumbnail (text kept inside y 300–1500 so the 3:4 grid crop and the Reels overlay never cut it)
+  - `reel.mp4`: the same cards as a 9:16 Reels video (3 s per card, opening on `reel-cover.jpg`)
+- `tools/render.js`: renders a `cards.json` to JPEGs plus `reel-cover.jpg` (`node tools/render.js <cards.json> <outDir>`)
 - `tools/reel.sh`: makes `reel.mp4` from a post's cards (`tools/reel.sh posts/<dir>`, needs ffmpeg)
 - `scripts/publish.js`: posts a carousel through graph.instagram.com
 - `scripts/publish-reel.js`: posts a Reel (`node scripts/publish-reel.js <caption.txt> <mp4Url> [coverUrl]`; `--no-publish` checks without posting)

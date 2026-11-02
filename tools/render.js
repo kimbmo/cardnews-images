@@ -1,6 +1,9 @@
 // usage: node render.js <cards.json> <outDir>
 // Image paths in the JSON ("image" on any card) are resolved relative to the JSON file.
 // A cover/outro with an image becomes a full-bleed photo card; other card types get a top banner.
+// It also writes reel-cover.jpg: the cover redrawn at 1080x1920 for the Reel thumbnail, with all text
+// kept between y=300 and y=1500 so neither the profile grid's 3:4 crop (y 240-1680) nor the
+// Reels caption/buttons overlay cuts it off.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -31,6 +34,8 @@ body{background:#ddd}
 .card{width:1080px;height:1350px;position:relative;overflow:hidden;font-family:K;color:#141824;
   background:#F6F4EF;padding:110px 96px;display:flex;flex-direction:column;letter-spacing:-0.02em;word-break:keep-all}
 .card > :not(.bg):not(.aimark){position:relative;z-index:1}
+.card.tall{height:1920px;padding:300px 96px 420px}
+.tall .aimark{bottom:340px}
 .card.dark{background:${A};color:#fff}
 .card.photo{background:#000;color:#fff}
 .bg{position:absolute;inset:0;background-size:cover;background-position:center;z-index:0}
@@ -105,7 +110,16 @@ const html = `<!doctype html><meta charset="utf-8"><style>${css}</style>` +
     const bg = full ? `<div class="bg" style="background-image:${img(c.image)}${focus}"></div>` : '';
     const mark = c.image ? `<div class="aimark">${esc(c.credit || 'AI 생성 이미지')}</div>` : '';
     return `<section class="card ${cls}" id="c${i}">${bg}<div class="top"><span>${esc(data.handle)}</span><span>${i + 1} / ${total}</span></div>${inner(c)}${mark}</section>`;
-  }).join('');
+  }).join('') + reelCover(data.cards[0]);
+
+function reelCover(c) {
+  if (!c || c.type !== 'cover') return '';
+  const cls = c.image ? `photo${c.soften ? ' soften' : ''}` : 'dark';
+  const focus = c.focus ? `;--fx:${c.focus[0]};--fy:${c.focus[1]}` : '';
+  const bg = c.image ? `<div class="bg" style="background-image:${img(c.image)}${focus}"></div>` : '';
+  const mark = c.image ? `<div class="aimark">${esc(c.credit || 'AI 생성 이미지')}</div>` : '';
+  return `<section class="card tall ${cls}" id="reel">${bg}<div class="top"><span>${esc(data.handle)}</span><span></span></div>${inner(c)}${mark}</section>`;
+}
 
 (async () => {
   fs.mkdirSync(outDir, { recursive: true });
@@ -118,6 +132,10 @@ const html = `<!doctype html><meta charset="utf-8"><style>${css}</style>` +
   await page.waitForLoadState('networkidle');
   for (let i = 0; i < total; i++) {
     await page.locator('#c' + i).screenshot({ path: path.join(outDir, `card-${i + 1}.jpg`), type: 'jpeg', quality: 92 });
+  }
+  if (data.cards[0] && data.cards[0].type === 'cover') {
+    await page.setViewportSize({ width: 1080, height: 1920 });
+    await page.locator('#reel').screenshot({ path: path.join(outDir, 'reel-cover.jpg'), type: 'jpeg', quality: 92 });
   }
   await browser.close();
   console.log('rendered', total);

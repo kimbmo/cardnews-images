@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Turn a post's rendered cards into a 9:16 Reels video.
 # usage: tools/reel.sh posts/<dir>   -> writes posts/<dir>/reel.mp4
-# Each card shows for SEC seconds (default 3) on a dark 1080x1920 frame, with a silent
-# audio track, H.264/AAC, 30 fps: the format the Instagram Reels API accepts.
+# Each card shows for SEC seconds (default 3) on a 1080x1920 frame, H.264/AAC, 30 fps: the format
+# the Instagram Reels API accepts.
+# Background music: set BGM to an mp3, or BGM_DIR to a folder of mp3s (one is picked from the post
+# folder's name, so it rotates between posts and a rerun picks the same one). The track fades in
+# and out under the video. Without either, the audio track is silent.
+# The music files are kept out of this public repo (their license forbids sharing the files on
+# their own); the routine passes BGM_DIR=/mnt/project-files/bgm.
 set -euo pipefail
 dir=${1:?usage: tools/reel.sh posts/<dir>}
 sec=${SEC:-3}
@@ -24,9 +29,20 @@ done
 # The concat demuxer needs the last file repeated so its duration is honoured.
 printf "file '%s'\n" "$f" >> "$list"
 total=$((n * sec))
-ffmpeg -y -loglevel error -f concat -safe 0 -i "$list" \
-  -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 \
-  -vf "scale=1080:1920,fps=30,format=yuv420p" \
+bgm=${BGM:-}
+if [ -z "$bgm" ] && [ -n "${BGM_DIR:-}" ] && ls "$BGM_DIR"/*.mp3 >/dev/null 2>&1; then
+  tracks=$(ls "$BGM_DIR"/*.mp3 | sort)
+  k=$(( $(basename "$dir" | cksum | cut -d' ' -f1) % $(echo "$tracks" | wc -l) + 1 ))
+  bgm=$(echo "$tracks" | sed -n "${k}p")
+fi
+if [ -n "$bgm" ]; then
+  audio=(-i "$bgm" -af "afade=t=in:d=1,afade=t=out:st=$((total - 2)):d=2,volume=0.8")
+  echo "music: $(basename "$bgm")"
+else
+  audio=(-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100)
+fi
+ffmpeg -y -loglevel error -f concat -safe 0 -i "$list" "${audio[@]}" \
+  -vf "scale=1080:1920,fps=30,format=yuv420p" -map 0:v -map 1:a \
   -c:v libx264 -profile:v high -preset medium -crf 20 -movflags +faststart \
   -c:a aac -b:a 128k -t "$total" -shortest "$dir/reel.mp4"
 rm -rf "$tmp"
